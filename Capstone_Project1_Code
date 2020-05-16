@@ -1,0 +1,744 @@
+# To add a new cell, type '# %%'
+# To add a new markdown cell, type '# %% [markdown]'
+# %% [markdown]
+# # STA160 Midterm Project
+# 
+# Code written by Johnny Xu on April 28th, 2020
+
+# %%
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sn
+from scipy import stats
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from mpl_toolkits import mplot3d
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier as KNN
+from sklearn.metrics import confusion_matrix
+from ot.dr import wda
+from sklearn.linear_model import LogisticRegression as LogReg
+
+
+# %%
+# Functions to be used
+
+# Make density plot
+def make_density_plot(data):
+
+    plt.figure(figsize=(15, 28), dpi = 100)
+
+    for i in range(3):
+        seed_cld = data[data["label"] == i]
+        for j in range(7):
+            index = int(i * 7 + j) + 1
+            plt.subplot(7, 3, index)
+            cloud_var = data.iloc[:,j]
+            cloud_var.plot.kde(legend = False, grid = True)
+            cloud_var.plot.hist(density = "True", alpha = 0.75)
+
+
+# compare density of different label
+def density_comparison(i, j):
+
+    data1 = seed_cld1.iloc[:,i]
+    data1.plot.kde(legend=False, label = "Density of Label 1")
+    data1.plot.hist(density = "True", label = "Label 1")
+
+    data2 = seed_cld2.iloc[:,i]
+    data2.plot.kde(legend=False, label = "Density of Label 2")
+    data2.plot.hist(density = "True", label = "Label 2")
+
+    data3 = seed_cld3.iloc[:,i]
+    data3.plot.kde(legend=False, label = "Density of Label 3")
+    data3.plot.hist(density = "True", label = "Label 3")
+
+    plt.legend(loc = "best")
+    plt.title("Comparison of Density Function of Variable %s in 3 Labels"%(i))
+
+
+# Calculate the pairwise wasserstein distance for each variable
+def get_wasserstein_distance(i):
+    data1 = seed_cld1.iloc[:,i]
+    data2 = seed_cld2.iloc[:,i]
+    data3 = seed_cld3.iloc[:,i]
+    dist12 = stats.wasserstein_distance(data1, data2)
+    dist13 = stats.wasserstein_distance(data1, data3)
+    dist23 = stats.wasserstein_distance(data2, data3)
+    name = str("Variable " + str(i))
+    result = {name: {"Wasserstein Distance Between Label 1 and Label 2" : dist12, "Wasserstein Distance Between Label 1 and Label 3" : dist13, "Wasserstein Distance Between Label 2 and Label 3" : dist23}}
+    return(result)
+
+
+# Distribution of leading eigenvectos
+def PC_density_comparison(i, j):
+    data1 = seed_PCs_1.iloc[:,i]
+    data1.plot.kde(legend=False, label = "Density of Label 1")
+    data1.plot.hist(density = "True", label = "Label 1")
+
+    data2 = seed_PCs_2.iloc[:,i]
+    data2.plot.kde(legend=False, label = "Density of Label 2")
+    data2.plot.hist(density = "True", label = "Label 2")
+
+    data3 = seed_PCs_3.iloc[:,i]
+    data3.plot.kde(legend=False, label = "Density of Label 3")
+    data3.plot.hist(density = "True", label = "Label 3")
+
+    plt.legend(loc = "best")
+    plt.title("Density Function of Eigenvector %s in 3 Labels"%(i + 1))
+
+# %% [markdown]
+# ## Exploratory Data Analysis
+
+# %%
+# Import the Seeds dataset
+seed_data = pd.read_csv("/Users/seacow/Documents/School Work/Spring 2020/STA 160/Data/seeds_dataset.txt"
+, delim_whitespace=True, names=["area", "parameter", "compactness", "kernel_length", "kernel_width", "asymmetry", "groove_length", "label"])
+seed_data
+
+
+# %%
+# Check dimension of the dataset
+seed_data.shape
+
+
+# %%
+# check the basic statistics of the Seeds dataset
+display(seed_data.describe())
+
+
+# %%
+# now we check the distribution of the labels
+seed_label = seed_data.iloc[:,7]
+
+# get the number of each labels
+seed_label.value_counts()
+
+
+# %%
+# study available variables
+seed_variables = seed_data.iloc[:,0:7]
+
+# check correlation between variables
+seed_corr = seed_variables.corr()
+
+# Visualize correlation
+sn.heatmap(seed_corr, annot = True)
+
+
+# %%
+# Seperate data into "clouds"
+seed_cld1 = seed_data[seed_data["label"] == 1]
+seed_cld2 = seed_data[seed_data["label"] == 2]
+seed_cld3 = seed_data[seed_data["label"] == 3]
+
+
+# %%
+make_density_plot(seed_data)
+plt.savefig('plot2')
+
+
+# %%
+# Make plot for distributions that are easily seperable
+j = 1
+plt.figure(figsize=(16, 12), dpi = 100)
+for i in [0, 1, 3, 4]:
+    plt.subplot(2, 2, j)
+    density_comparison(i, j)
+    j = j + 1
+plt.savefig('plot3')
+
+
+# %%
+all_wasserstein_dist = []
+for i in [0, 1, 3, 4]:
+    result = get_wasserstein_distance(i)
+    all_wasserstein_dist.append(result)
+
+all_wasserstein_dist
+
+
+# %%
+# plot of distributions that are intertwined
+j = 1
+plt.figure(figsize=(22, 6), dpi = 100)
+for i in [2, 5, 6]:
+    plt.subplot(1, 3, j)
+    density_comparison(i, j)
+    j = j + 1
+
+
+# %%
+all_wasserstein_dist = []
+for i in [2, 5, 6]:
+    result = get_wasserstein_distance(i)
+    all_wasserstein_dist.append(result)
+
+all_wasserstein_dist
+
+# %% [markdown]
+# ## Principal Component Analysis
+
+# %%
+# Due to large covariance between certain variables, perform PCA
+
+# First, standardize data
+seed_vars = ["area", "parameter", "compactness", "kernel_length", "kernel_width", "asymmetry", "groove_length", "label"]
+# Separating out the features
+seed_vars = seed_data.loc[:, seed_vars].values
+# Separating out the target
+seed_label = seed_data.loc[:,['label']].values
+# Standardizing the features
+seed_vars = StandardScaler().fit_transform(seed_vars)
+
+
+# %%
+# Conduct Principal Component Analysis
+pca_init = PCA(n_components = 3)
+seed_PCs = pca_init.fit_transform(seed_vars)
+seed_PCs = pd.DataFrame(data = seed_PCs, columns = ['PC1', 'PC2', 'PC3'])
+seed_PCs["label"] = seed_label
+
+
+# %%
+# Visualize PCA Result
+fig = plt.figure(figsize = (20,7))
+ax = fig.add_subplot(1,2,1) 
+ax.set_xlabel('Principal Component 1', fontsize = 15)
+ax.set_ylabel('Principal Component 2', fontsize = 15)
+ax.set_title('PC1 VS PC2', fontsize = 20)
+label = ['1', '2', '3']
+colors = ['r', 'g', 'b']
+for label, color in zip(label,colors):
+    label_idx = seed_PCs['label'] == int(label)
+    ax.scatter(seed_PCs.loc[label_idx, 'PC1'], seed_PCs.loc[label_idx, 'PC2'], c = color, s = 50, label = label)
+ax.legend()
+ax.grid()
+
+ax = fig.add_subplot(1, 2, 2, projection = '3d')
+ax.set_xlabel('Principal Component 1', fontsize = 15)
+ax.set_ylabel('Principal Component 2', fontsize = 15)
+ax.set_zlabel('Principal Component 3', fontsize = 15)
+ax.set_title('Plot of 3 Principal Components', fontsize = 20)
+label = ['1', '2', '3']
+colors = ['r', 'g', 'b']
+for label, color in zip(label,colors):
+    label_idx = seed_PCs['label'] == int(label)
+    ax.scatter(seed_PCs.loc[label_idx, 'PC1'], seed_PCs.loc[label_idx, 'PC2'], seed_PCs.loc[label_idx, 'PC3'], c = color, s = 50, label = label)
+ax.legend()
+ax.grid()
+
+
+
+# %%
+seed_PCs_1 = seed_PCs[seed_PCs["label"] == 1]
+seed_PCs_2 = seed_PCs[seed_PCs["label"] == 2]
+seed_PCs_3 = seed_PCs[seed_PCs["label"] == 3]
+
+# Make plot for distributions that are easily seperable
+j = 1
+plt.figure(figsize=(16, 6), dpi = 100)
+for i in range(3):
+    plt.subplot(1, 3, j)
+    PC_density_comparison(i, j)
+    j = j + 1
+
+# %% [markdown]
+# ## Confirm Observation by Conducting Classification
+# %% [markdown]
+# ## Multi-Label Classification
+
+# %%
+# train test split
+X_train, X_test, Y_train, Y_test = train_test_split(seed_variables, seed_data.iloc[:,7], test_size = 0.33, random_state = 123)
+
+clf = DecisionTreeClassifier(max_depth = 5)
+clf.fit(X_train, Y_train)
+
+Y_predict = clf.predict(X_test)
+
+test_result = confusion_matrix(Y_test, Y_predict)
+display(test_result)
+
+right_outcome = test_result.trace()
+all_outcome = test_result.sum()
+display("Accuracy Rate: %s"%(right_outcome/all_outcome))
+
+
+# %%
+clf = LogReg(multi_class = 'multinomial', solver = 'lbfgs')
+clf.fit(X_train, Y_train)
+
+Y_predict = clf.predict(X_test)
+
+test_result = confusion_matrix(Y_test, Y_predict)
+display(test_result)
+
+right_outcome = test_result.trace()
+all_outcome = test_result.sum()
+display("Accuracy Rate: %s"%(right_outcome/all_outcome))
+
+# %% [markdown]
+# ### Classification on Label 2 and 3
+# %% [markdown]
+# * Completely Disjoint Density Produced Perfect Result
+
+# %%
+# Use the variables that seem to be most distinctive among the two labels
+seed_subdata = seed_data[seed_data["label"].isin([2, 3])]
+seed_vars23 = seed_subdata.iloc[:, [4]]
+seed_label23 = seed_subdata.iloc[:, 7]
+
+# train test split
+X_train, X_test, Y_train, Y_test = train_test_split(seed_vars23, seed_label23, test_size = 0.33, random_state = 123)
+
+# Use Support Vector Machine to do classification
+clf = KNN()
+clf.fit(X_train, Y_train)
+Y_predict = clf.predict(X_test)
+
+test_result = confusion_matrix(Y_test, Y_predict)
+display(test_result)
+
+right_outcome = test_result.trace()
+all_outcome = test_result.sum()
+display("Accuracy Rate: %s"%(right_outcome/all_outcome))
+
+
+# %%
+# Use the variables that seem to be most distinctive among the two labels
+seed_subdata = seed_data[seed_data["label"].isin([2, 3])]
+seed_vars23 = seed_subdata.iloc[:, [1]]
+seed_label23 = seed_subdata.iloc[:, 7]
+
+# train test split
+X_train, X_test, Y_train, Y_test = train_test_split(seed_vars23, seed_label23, test_size=0.33, random_state=42)
+
+# Use Support Vector Machine to do classification
+clf = KNN()
+clf.fit(X_train, Y_train)
+Y_predict = clf.predict(X_test)
+
+test_result = confusion_matrix(Y_test, Y_predict)
+display(test_result)
+
+right_outcome = test_result.trace()
+all_outcome = test_result.sum()
+display("Accuracy Rate: %s"%(right_outcome/all_outcome))
+
+# %% [markdown]
+# ## Classification on Label 1 and other labels
+
+# %%
+seed_data_23 = seed_data[seed_data["label"].isin([2, 3])]
+seed_data_23["label"] = 0
+seed_data_1 = seed_data[seed_data['label'] == 1]
+
+# Create new binary classification dataset
+seed_data_new = seed_data_1.append(seed_data_23)
+
+seed_new_vars = seed_data_new.iloc[:, 0:7]
+seed_new_label = seed_data_new.iloc[:, 7]
+
+
+# %%
+# train test split
+X_train, X_test, Y_train, Y_test = train_test_split(seed_new_vars, seed_new_label, test_size=0.33, random_state=42)
+
+# Use Support Vector Machine to do classification
+clf = KNN()
+clf.fit(X_train, Y_train)
+Y_predict = clf.predict(X_test)
+
+test_result = confusion_matrix(Y_test, Y_predict)
+display(test_result)
+
+right_outcome = test_result.trace()
+all_outcome = test_result.sum()
+display("Accuracy Rate: %s"%(right_outcome/all_outcome))
+
+# %% [markdown]
+# ### Conduct classification only using the second eigenvector as variable
+
+# %%
+# prepare dataset for classification
+seed_PC2 = seed_PCs.iloc[:,[1, 3]]
+seed_vars = seed_PC2.iloc[:, 0]
+seed_label = seed_PC2.iloc[:, 1]
+
+seed_data_23 = seed_PC2[seed_PC2["label"].isin([2, 3])]
+seed_data_23["label"] = -1
+seed_data_1 = seed_PC2[seed_PC2['label'] == 1]
+
+# Create new binary classification dataset
+seed_data_new = seed_data_1.append(seed_data_23)
+
+seed_new_vars = seed_data_new.iloc[:, 0]
+seed_new_label = seed_data_new.iloc[:, 1]
+
+
+# %%
+# train test split
+X_train, X_test, Y_train, Y_test = train_test_split(seed_new_vars, seed_new_label, test_size=0.33, random_state=42)
+
+X_train = np.array(X_train).reshape(-1, 1)
+Y_train = np.array(Y_train).reshape(-1, 1)
+X_test = np.array(X_test).reshape(-1, 1)
+Y_test = np.array(Y_test).reshape(-1, 1)
+
+# Use KNN to do classification
+clf.fit(X_train, Y_train)
+Y_predict = clf.predict(X_test)
+
+test_result = confusion_matrix(Y_test, Y_predict)
+display(test_result)
+
+right_outcome = test_result.trace()
+all_outcome = test_result.sum()
+display("Accuracy Rate: %s"%(right_outcome/all_outcome))
+
+
+# ===================================================================================================================================================
+# ===================================================================================================================================================
+ # ===================================================================================================================================================
+
+# To add a new cell, type '# %%'
+# To add a new markdown cell, type '# %% [markdown]'
+# %%
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sn
+from scipy import stats
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from mpl_toolkits import mplot3d
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix
+from sklearn.linear_model import LogisticRegression as LogReg
+from ot.dr import wda
+from matplotlib.patches import Rectangle
+from sklearn.preprocessing import LabelEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.feature_selection import RFE
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+import matplotlib.ticker as plticker
+
+
+# %%
+# Load datasets
+auto_attr = ['symboling', 'normalized_losses', 'make', 'fuel_type', 'aspiration', 'num_of_doors', 'body_style', 'drive_wheels', 'engine_location', 'wheel_base', 'length', 'width', 'height', 'curb_weight', 'engine_type', 'num_of_cylinders', 'engine_size', 'fuel_system', 'bore', 'stroke', 'compression_ratio', 'horsepower', 'peak_rpm', 'city_mpg', 'highway_mpg', 'price']
+
+auto_data = pd.read_csv("/Users/seacow/Documents/School Work/Spring 2020/STA 160/Data/imports-85.data", names = auto_attr)
+
+# %% [markdown]
+# # Exploratory Data Analysis
+
+# %%
+# check dimension of dataset
+auto_data.shape
+
+
+# %%
+# Handle missing values
+auto_data.replace({'?': np.nan}, regex=False,inplace=True)
+
+# Count the number of missing values for each variable
+auto_data.isnull().sum()
+
+
+# %%
+# Correct data type of some variable 
+for key in ['stroke', 'bore', 'horsepower', 'price', 'normalized_losses', 'peak_rpm']:
+    auto_data[key] = auto_data[key].astype(float)
+
+
+# %%
+# get dataset summary
+display(auto_data.describe())
+
+
+# %%
+# Seperate data into numerical and categorical data
+auto_data_numerical = auto_data._get_numeric_data()
+auto_vars_numerical = auto_data_numerical.columns
+
+# Remove label
+auto_data_numerical = auto_data_numerical.drop(columns = ['symboling'])
+
+# Get categorical variables
+auto_vars_categorical = list(set(auto_data.columns) - set(auto_vars_numerical))
+auto_data_categorical = auto_data[auto_vars_categorical]
+
+
+# %%
+for var in auto_vars_categorical:
+    display(auto_data_categorical[var].value_counts())
+
+
+# %%
+# calculate correlation matrix of numerical variables
+auto_corr = auto_data_numerical.corr()
+
+# Visualize correlation
+sn.heatmap(auto_corr, annot = False)
+plt.show()
+
+
+# %%
+# seperate auto data by their label
+
+# first get the labels
+auto_label_count = display(auto_data['symboling'].value_counts())
+
+auto_label = [0, 1, 2, 3, -1, -2]
+
+
+# %%
+# Visualize the distribution of labels
+# This visualization is enligtened by [Brad Solomon] on https://realpython.com/python-histograms/
+
+fig, ax = plt.subplots(figsize = (8,8))
+auto_data['symboling'].plot.hist(bins = 6, density = True, alpha = 0.75)
+auto_data['symboling'].plot.kde(ax = ax, color = 'navy')
+ax.set_xticks([-2, -1, 0, 1, 2, 3])
+plt.xticks(rotation = 70)
+
+bins = np.array([-2, -1.16666667, -0.33333333, 0.5, 1.33333333, 2.16666667, 3])
+counts = np.array([ 3, 22, 67, 54, 32, 27])
+
+# Set the graph title and axes titles
+plt.title('Distirbution of Automobile Labels', fontsize = 20)
+plt.ylabel('Frequency', fontsize = 15)
+plt.xlabel('Automobile Labels', fontsize = 15)
+
+ax.grid(axis = 'y', alpha = 0.75)
+        
+# Calculate bar centre to display the count of data points and %
+bin_x_centers = 0.5 * np.diff(bins) + bins[:-1]
+bin_y_centers = ax.get_yticks()[1] * 0.25
+
+# Display the the count of data points and % for each bar in histogram
+for i in range(len(bins) - 1):
+    bin_label = "{0:,}".format(int(counts[i])) + "  ({0:,.2f}%)".format((counts[i]/counts.sum()) * 100)
+    plt.text(bin_x_centers[i], bin_y_centers, bin_label, rotation = 90, rotation_mode = 'anchor', color = 'black', fontsize = 15)
+
+# %% [markdown]
+# # Multinomial Logistric Model for Multiple Labels
+
+# %%
+# seperate data to variables and labels
+auto_vars = auto_data.iloc[:,1:]
+auto_label = auto_data['symboling']
+
+
+# %%
+# Encode Label
+lb_make = LabelEncoder()
+for var in auto_vars_categorical:
+    auto_vars[var] = lb_make.fit_transform(auto_vars[var].astype(str))
+
+# Impute missing value by mean
+simple_imputer = SimpleImputer(missing_values = np.nan, strategy = 'mean')
+auto_vars_imputed = simple_imputer.fit(auto_vars)
+auto_vars_imputed = simple_imputer.transform(auto_vars)
+
+
+# %%
+# Make train and testing data
+X_train, X_test, Y_train, Y_test = train_test_split(auto_vars_imputed, auto_label, test_size = 0.33, random_state = 123)
+
+
+# %%
+# Fit full model
+clf = LogReg(multi_class = 'multinomial', solver = 'lbfgs')
+clf.fit(X_train, Y_train)
+
+
+# %%
+# Test model
+Y_predict = clf.predict(X_test)
+
+# make confusion matrix
+test_result = confusion_matrix(Y_test, Y_predict)
+display(test_result)
+
+right_outcome = test_result.trace()
+all_outcome = test_result.sum()
+display("Accuracy Rate: %s"%(right_outcome/all_outcome))
+
+
+# %%
+sn.heatmap(test_result, annot=True)
+
+# %% [markdown]
+# # Investigate Potential Overfitting Issue
+
+# %%
+selection_result = pd.DataFrame(np.zeros(27), columns = ['error_rate'])
+for i in range(1, 28):
+
+    # Conduct feature Selection using recursive feature ranking
+    selector = RFE(clf, i, step=1)
+    # retest model
+    selector.fit(X_train, Y_train)
+
+    Y_predict = selector.predict(X_test)
+
+    # make confusion matrix
+    test_result = confusion_matrix(Y_test, Y_predict)
+    display(test_result)
+
+    right_outcome = test_result.trace()
+    all_outcome = test_result.sum()
+
+
+    selection_result['error_rate'][i - 1] = right_outcome/all_outcome
+    display("With number of feature to be %s, the correpsonding accuracy rate is %s"%(i, right_outcome/all_outcome))
+
+
+# %%
+# clean up data set
+selection_result = selection_result.reset_index()
+selection_result["index"] = selection_result["index"] + 1
+
+
+# %%
+# Visualize number of variables and error rate
+fig = plt.figure(figsize = (8, 8))
+ax = plt.axes()
+
+ax.plot(selection_result['index'], selection_result['error_rate'])
+ax.set_xlabel('Number of Variables', fontsize = 15)
+ax.set_ylabel('Error Rate', fontsize = 15)
+ax.set_title('Number of Variables and Error Rate', fontsize = 20)
+ax.grid(axis = 'x', alpha = 0.75)
+
+# %% [markdown]
+# ## AdaBoost Approach
+
+# %%
+# conduct adaboost for decision tree of different depth
+
+ada_result = pd.DataFrame(np.zeros(19), columns = ['error_rate'])
+
+for i in range(1,20):
+    # Initiate Classifier
+    ada_clf = AdaBoostClassifier(DecisionTreeClassifier(max_depth = i), n_estimators = 50, learning_rate = 1)
+
+    ada_clf.fit(X_train, Y_train)
+
+    Y_predict = ada_clf.predict(X_test)
+
+    # make confusion matrix
+    test_result = confusion_matrix(Y_test, Y_predict)
+    display(test_result)
+
+    right_outcome = test_result.trace()
+    all_outcome = test_result.sum()
+
+    ada_result['error_rate'][i - 1] = right_outcome/all_outcome
+
+    display("The accuracy rate is %s with a depth %s decision tree"%((right_outcome/all_outcome), i))
+
+
+# %%
+# clean up data set
+ada_result = ada_result.reset_index()
+ada_result["index"] = ada_result["index"] + 1
+
+
+# %%
+# Visualize the depth of the decision tree and error rate
+fig = plt.figure(figsize = (8, 8))
+ax = plt.axes()
+
+ax.plot(ada_result['index'], ada_result['error_rate'])
+ax.set_xlabel('Depth of Decision Tree', fontsize = 15)
+ax.set_ylabel('Error Rate', fontsize = 15)
+ax.set_title('Depth of Decision Tree and Error Rate', fontsize = 20)
+loc = plticker.MultipleLocator(base=1.0) # this locator puts ticks at regular intervals
+ax.xaxis.set_major_locator(loc)
+ax.grid(axis = 'x', alpha = 0.75)
+
+
+# %%
+# Adaboost Decision Tree has the best performance when depth = 4 or 5.ada_result
+ada_clf = AdaBoostClassifier(DecisionTreeClassifier(max_depth = 5), n_estimators = 50, learning_rate = 1)
+ada_clf.fit(X_train, Y_train)
+
+Y_predict = ada_clf.predict(X_test)
+
+# make confusion matrix
+test_result = confusion_matrix(Y_test, Y_predict)
+
+
+# %%
+sn.heatmap(test_result, annot = True)
+
+
+# %%
+auto_data_numerical
+
+
+# %%
+# Impute missing value by mean
+simple_imputer = SimpleImputer(missing_values = np.nan, strategy = 'mean')
+model = simple_imputer.fit(auto_data_numerical.astype(float))
+auto_numerical_imputed = model.transform(auto_data_numerical)
+
+
+# %%
+auto_std_vars = StandardScaler().fit_transform(auto_numerical_imputed)
+
+
+# %%
+pca_init = PCA(n_components = 3)
+auto_PCs = pca_init.fit_transform(auto_std_vars)
+auto_PCs = pd.DataFrame(data = auto_PCs, columns = ['PC1', 'PC2', 'PC3'])
+auto_PCs["label"] = auto_data.iloc[:,0]
+
+
+# %%
+# Visualize PCA Result
+fig = plt.figure(figsize = (20,7))
+ax = fig.add_subplot(1,2,1) 
+ax.set_xlabel('Principal Component 1', fontsize = 15)
+ax.set_ylabel('Principal Component 2', fontsize = 15)
+ax.set_title('PC1 VS PC2', fontsize = 20)
+label = ['-2', '-1', '0', '1', '2', '3']
+colors = ['red', 'green', 'blue', 'black', 'purple', 'orange']
+for label, color in zip(label,colors):
+    label_idx = auto_PCs['label'] == int(label)
+    ax.scatter(auto_PCs.loc[label_idx, 'PC1'], auto_PCs.loc[label_idx, 'PC2'], c = color, s = 50, label = label)
+ax.legend()
+ax.grid()
+
+ax = fig.add_subplot(1, 2, 2, projection = '3d')
+ax.set_xlabel('Principal Component 1', fontsize = 15)
+ax.set_ylabel('Principal Component 2', fontsize = 15)
+ax.set_zlabel('Principal Component 3', fontsize = 15)
+ax.set_title('Plot of 3 Principal Components', fontsize = 20)
+label = ['-2', '-1', '0', '1', '2', '3']
+colors = ['red', 'green', 'blue', 'black', 'purple', 'orange']
+for label, color in zip(label,colors):
+    label_idx = auto_PCs['label'] == int(label)
+    ax.scatter(auto_PCs.loc[label_idx, 'PC1'], auto_PCs.loc[label_idx, 'PC2'], auto_PCs.loc[label_idx, 'PC3'], c = color, s = 50, label = label)
+ax.legend()
+ax.grid()
+
+
+# %%
+
+
+
+
+
+
+
+
+
+
+
